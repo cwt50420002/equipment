@@ -49,9 +49,8 @@ jobs:
     permissions:
       pages: write
       id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    # No `environment: github-pages` here — that Environment often has branch/reviewer
+    # rules that block deploys (e.g. "master not allowed"). Deploy still uses GitHub Pages.
     steps:
       - id: deployment
         name: Deploy to GitHub Pages
