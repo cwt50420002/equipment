@@ -34,6 +34,14 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
+      # Live site also reads this file at runtime if Vite env vars are missing from the bundle.
+      - name: Write supabase-runtime-config.json into dist
+        run: |
+          node -e "const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/supabase-runtime-config.json',JSON.stringify({url:process.env.VITE_SUPABASE_URL||'',anonKey:process.env.VITE_SUPABASE_ANON_KEY||''}));"
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

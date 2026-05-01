@@ -18,7 +18,7 @@ import {
   updateEquipmentItem,
   updateLocationName,
 } from './equipcheckDb'
-import { supabase, supabaseConfigured } from './supabaseClient'
+import { getSupabase, isSupabaseConfigured } from './supabaseClient'
 
 const LS_KEY = 'equipcheck-v1'
 
@@ -101,6 +101,9 @@ const areaTemplates = [
 ]
 
 function App() {
+  const supabase = getSupabase()
+  const supabaseConfigured = isSupabaseConfigured()
+
   const [selectedArea, setSelectedArea] = useState(() => {
     const b = readLocalSnapshot()
     const s = b.selectedArea
@@ -223,7 +226,7 @@ function App() {
       setSyncError(msg)
       throw e
     }
-  }, [])
+  }, [supabase])
 
   const persistedPayload = useMemo(
     () => ({
@@ -269,12 +272,12 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [reloadFromDatabase])
+  }, [reloadFromDatabase, supabase, supabaseConfigured])
 
   useEffect(() => {
     if (!syncReady || !supabaseConfigured) return
     skipSaveRef.current = false
-  }, [syncReady])
+  }, [syncReady, supabaseConfigured])
 
   useEffect(() => {
     if (dbMode || typeof window === 'undefined') return
@@ -304,7 +307,7 @@ function App() {
       else setSyncError(null)
     }, 400)
     return () => clearTimeout(handle)
-  }, [dbMode, syncReady, persistedPayload])
+  }, [dbMode, syncReady, persistedPayload, supabase, supabaseConfigured])
 
   // Pull latest catalog + submissions when tab wakes up (multi-device / multi-tab)
   useEffect(() => {
@@ -324,7 +327,7 @@ function App() {
       window.removeEventListener('focus', schedule)
       window.clearTimeout(debounceId)
     }
-  }, [dbMode, syncReady, reloadFromDatabase])
+  }, [dbMode, syncReady, reloadFromDatabase, supabase])
 
   useEffect(() => {
     if (!dbMode || !syncReady || !supabase) return
@@ -332,7 +335,7 @@ function App() {
       void reloadFromDatabase().catch(() => {})
     }, 45_000)
     return () => window.clearInterval(id)
-  }, [dbMode, syncReady, reloadFromDatabase])
+  }, [dbMode, syncReady, reloadFromDatabase, supabase])
 
   const showGithubPagesLocalOnlyBanner =
     typeof window !== 'undefined' &&
@@ -1104,10 +1107,12 @@ function App() {
 
       {showGithubPagesLocalOnlyBanner ? (
         <div className="sync-banner sync-banner-warn" role="alert">
-          Cloud sync is off: Supabase URL/key were missing when this site was built. In GitHub → your repo →
-          Settings → Secrets → Actions, add <strong>VITE_SUPABASE_URL</strong> and{' '}
-          <strong>VITE_SUPABASE_ANON_KEY</strong>, then run <strong>Deploy to GitHub Pages</strong> again.
-          Until then, data stays only on this browser.
+          Cloud sync is off: Supabase URL/key are missing from this deployment. In GitHub → repo → Settings →
+          Secrets → Actions, add <strong>VITE_SUPABASE_URL</strong> and{' '}
+          <strong>VITE_SUPABASE_ANON_KEY</strong> (same values as your <code>.env</code>), then run{' '}
+          <strong>Deploy to GitHub Pages</strong> again. The workflow writes{' '}
+          <code>supabase-runtime-config.json</code> — without secrets that file is empty. Until fixed, data stays
+          only on this browser.
         </div>
       ) : null}
 
