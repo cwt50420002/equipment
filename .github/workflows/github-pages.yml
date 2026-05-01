@@ -33,6 +33,17 @@ jobs:
 
       - run: npm ci
 
+      - name: Validate required Supabase secrets
+        run: |
+          if [ -z "${VITE_SUPABASE_URL}" ] || [ -z "${VITE_SUPABASE_ANON_KEY}" ]; then
+            echo "Missing required secrets: VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY"
+            echo "Go to: GitHub repo -> Settings -> Secrets and variables -> Actions"
+            exit 1
+          fi
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
       - name: Build (Supabase URL/key from repo Secrets)
         run: npm run build
         env:
