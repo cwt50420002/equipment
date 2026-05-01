@@ -5,12 +5,9 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
-# Opt into Node 24 for JS-based actions (Node 20 deprecated on runners).
-# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-# Minimal token scopes; deploy job repeats pages + id-token for clarity
 permissions:
   contents: read
   pages: write
@@ -23,9 +20,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hospital-equipment-check
     env:
-      # Accept either repository Secrets or repository Variables.
-      # This avoids silent failures if values were added under Variables.
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
       VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
     steps:
@@ -33,40 +31,22 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
+          cache-dependency-path: hospital-equipment-check/package-lock.json
 
       - run: npm ci
+      - run: npm run build
 
-      - name: Validate required Supabase secrets
-        run: |
-          if [ -z "${VITE_SUPABASE_URL}" ] || [ -z "${VITE_SUPABASE_ANON_KEY}" ]; then
-            echo "Missing required config: VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY"
-            echo "Add them in: GitHub repo -> Settings -> Secrets and variables -> Actions"
-            echo "You can add under either Repository secrets OR Repository variables."
-            exit 1
-          fi
-
-      - name: Debug config presence (safe)
-        run: |
-          echo "VITE_SUPABASE_URL length: ${#VITE_SUPABASE_URL}"
-          echo "VITE_SUPABASE_ANON_KEY length: ${#VITE_SUPABASE_ANON_KEY}"
-
-      - name: Build (Supabase URL/key from repo Secrets)
-        run: npm run build
-
-      # Live site also reads this file at runtime if Vite env vars are missing from the bundle.
-      - name: Write supabase-runtime-config.json into dist
+      - name: Write runtime Supabase config
         run: |
           node -e "const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/supabase-runtime-config.json',JSON.stringify({url:process.env.VITE_SUPABASE_URL||'',anonKey:process.env.VITE_SUPABASE_ANON_KEY||''}));"
 
-      # Single Pages artifact; configure-pages@v5 was contributing to duplicate "github-pages"
-      # artifacts in some runs. upload-pages-artifact@v4 aligns with deploy-pages@v4.
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
           name: github-pages-${{ github.run_attempt }}
-          path: dist
+          path: hospital-equipment-check/dist
 
   deploy:
     needs: build
@@ -74,8 +54,6 @@ jobs:
     permissions:
       pages: write
       id-token: write
-    # No `environment: github-pages` here — that Environment often has branch/reviewer
-    # rules that block deploys (e.g. "master not allowed"). Deploy still uses GitHub Pages.
     steps:
       - id: deployment
         name: Deploy to GitHub Pages
