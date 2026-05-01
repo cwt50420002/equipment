@@ -5,6 +5,11 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+# Opt into Node 24 for JS-based actions (Node 20 deprecated on runners).
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # Minimal token scopes; deploy job repeats pages + id-token for clarity
 permissions:
   contents: read
@@ -19,11 +24,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - run: npm ci
@@ -42,12 +47,10 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      # v3 pairs reliably with deploy-pages@v4 (see actions/deploy-pages README)
+      # Single Pages artifact; configure-pages@v5 was contributing to duplicate "github-pages"
+      # artifacts in some runs. upload-pages-artifact@v4 aligns with deploy-pages@v4.
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
