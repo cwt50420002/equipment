@@ -23,6 +23,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # Accept either repository Secrets or repository Variables.
+      # This avoids silent failures if values were added under Variables.
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v5
 
@@ -36,27 +41,24 @@ jobs:
       - name: Validate required Supabase secrets
         run: |
           if [ -z "${VITE_SUPABASE_URL}" ] || [ -z "${VITE_SUPABASE_ANON_KEY}" ]; then
-            echo "Missing required secrets: VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY"
-            echo "Go to: GitHub repo -> Settings -> Secrets and variables -> Actions"
+            echo "Missing required config: VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY"
+            echo "Add them in: GitHub repo -> Settings -> Secrets and variables -> Actions"
+            echo "You can add under either Repository secrets OR Repository variables."
             exit 1
           fi
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Debug config presence (safe)
+        run: |
+          echo "VITE_SUPABASE_URL length: ${#VITE_SUPABASE_URL}"
+          echo "VITE_SUPABASE_ANON_KEY length: ${#VITE_SUPABASE_ANON_KEY}"
 
       - name: Build (Supabase URL/key from repo Secrets)
         run: npm run build
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       # Live site also reads this file at runtime if Vite env vars are missing from the bundle.
       - name: Write supabase-runtime-config.json into dist
         run: |
           node -e "const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/supabase-runtime-config.json',JSON.stringify({url:process.env.VITE_SUPABASE_URL||'',anonKey:process.env.VITE_SUPABASE_ANON_KEY||''}));"
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       # Single Pages artifact; configure-pages@v5 was contributing to duplicate "github-pages"
       # artifacts in some runs. upload-pages-artifact@v4 aligns with deploy-pages@v4.
