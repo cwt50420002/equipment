@@ -200,22 +200,29 @@ function App() {
 
   const reloadFromDatabase = useCallback(async () => {
     if (!supabase) return { locations: [], equipment: [], submissions: [] }
-    const [locs, eq, cats, subs] = await Promise.all([
-      fetchLocations(supabase),
-      fetchEquipmentFlat(supabase),
-      fetchExtraCategories(supabase),
-      fetchSubmissionsUi(supabase),
-    ])
-    setDbLocations(locs)
-    setDbEquipment(eq)
-    setDbExtraCategories(cats)
-    setSubmissions(subs.map(submissionDbToUi))
-    if (locs.length > 0) {
-      setSelectedArea((prev) =>
-        locs.some((l) => l.name === prev) ? prev : locs[0].name,
-      )
+    try {
+      const [locs, eq, cats, subs] = await Promise.all([
+        fetchLocations(supabase),
+        fetchEquipmentFlat(supabase),
+        fetchExtraCategories(supabase),
+        fetchSubmissionsUi(supabase),
+      ])
+      setDbLocations(locs)
+      setDbEquipment(eq)
+      setDbExtraCategories(cats)
+      setSubmissions(subs.map(submissionDbToUi))
+      if (locs.length > 0) {
+        setSelectedArea((prev) =>
+          locs.some((l) => l.name === prev) ? prev : locs[0].name,
+        )
+      }
+      setSyncError(null)
+      return { locations: locs, equipment: eq, submissions: subs }
+    } catch (e) {
+      const msg = e.message ?? String(e)
+      setSyncError(msg)
+      throw e
     }
-    return { locations: locs, equipment: eq, submissions: subs }
   }, [])
 
   const persistedPayload = useMemo(
@@ -298,6 +305,39 @@ function App() {
     }, 400)
     return () => clearTimeout(handle)
   }, [dbMode, syncReady, persistedPayload])
+
+  // Pull latest catalog + submissions when tab wakes up (multi-device / multi-tab)
+  useEffect(() => {
+    if (!dbMode || !syncReady || !supabase) return
+    let debounceId = 0
+    const schedule = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      window.clearTimeout(debounceId)
+      debounceId = window.setTimeout(() => {
+        void reloadFromDatabase().catch(() => {})
+      }, 400)
+    }
+    document.addEventListener('visibilitychange', schedule)
+    window.addEventListener('focus', schedule)
+    return () => {
+      document.removeEventListener('visibilitychange', schedule)
+      window.removeEventListener('focus', schedule)
+      window.clearTimeout(debounceId)
+    }
+  }, [dbMode, syncReady, reloadFromDatabase])
+
+  useEffect(() => {
+    if (!dbMode || !syncReady || !supabase) return
+    const id = window.setInterval(() => {
+      void reloadFromDatabase().catch(() => {})
+    }, 45_000)
+    return () => window.clearInterval(id)
+  }, [dbMode, syncReady, reloadFromDatabase])
+
+  const showGithubPagesLocalOnlyBanner =
+    typeof window !== 'undefined' &&
+    !supabaseConfigured &&
+    /\.github\.io$/i.test(window.location.hostname)
 
   const handleAreaChange = (areaName) => {
     setSelectedArea(areaName)
@@ -1059,6 +1099,15 @@ function App() {
       {supabaseConfigured && (!syncReady || syncError) ? (
         <div className={`sync-banner ${syncError ? 'sync-banner-error' : ''}`} role="status">
           {!syncReady ? 'Loading saved data…' : `Could not sync: ${syncError}`}
+        </div>
+      ) : null}
+
+      {showGithubPagesLocalOnlyBanner ? (
+        <div className="sync-banner sync-banner-warn" role="alert">
+          Cloud sync is off: Supabase URL/key were missing when this site was built. In GitHub → your repo →
+          Settings → Secrets → Actions, add <strong>VITE_SUPABASE_URL</strong> and{' '}
+          <strong>VITE_SUPABASE_ANON_KEY</strong>, then run <strong>Deploy to GitHub Pages</strong> again.
+          Until then, data stays only on this browser.
         </div>
       ) : null}
 

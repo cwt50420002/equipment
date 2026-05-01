@@ -77,6 +77,12 @@
   text-align: center;
 }
 
+.sync-banner-warn {
+  background: #fffbeb;
+  color: #92400e;
+  border-bottom-color: #fcd34d;
+}
+
 .sync-banner-error {
   background: #fef2f2;
   color: #991b1b;

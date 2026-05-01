@@ -23,6 +23,8 @@ This repo includes `.github/workflows/github-pages.yml`.
 
 Live URL shape: `https://<username>.github.io/<repository>/` (for this project the repo is **`equipment`**).
 
+If devices don’t share the same checklist data, the deployed bundle likely has no Supabase env: confirm both secrets exist and redeploy. On `*.github.io`, an amber banner explains when cloud sync is off.
+
 ## Scripts
 
 - `npm run build` — production build to `dist/`
