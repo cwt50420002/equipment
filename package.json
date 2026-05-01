@@ -18,6 +18,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/server-github": "^2025.4.8",
+    "@supabase/mcp-server-supabase": "^0.8.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

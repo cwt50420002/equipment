@@ -1,6 +1,39 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import {
+  deleteEquipmentByCategory,
+  deleteEquipmentItem,
+  deleteExtraCategory,
+  deleteLocationCascade,
+  fetchEquipmentFlat,
+  fetchExtraCategories,
+  fetchLocations,
+  fetchSubmissionsUi,
+  insertEquipmentItem,
+  insertExtraCategory,
+  insertLocation,
+  insertSubmission,
+  locationIdByName,
+  renameEquipmentCategory,
+  updateEquipmentItem,
+  updateLocationName,
+} from './equipcheckDb'
 import { supabase, supabaseConfigured } from './supabaseClient'
+
+const LS_KEY = 'equipcheck-v1'
+
+function readLocalSnapshot() {
+  if (typeof window === 'undefined') return { savedAt: 0 }
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    if (!raw) return { savedAt: 0 }
+    const o = JSON.parse(raw)
+    if (typeof o.savedAt !== 'number') o.savedAt = 0
+    return o
+  } catch {
+    return { savedAt: 0 }
+  }
+}
 
 const formatDate = (date) =>
   new Intl.DateTimeFormat('en-GB', {
@@ -21,6 +54,23 @@ const formatDateTime = (date) => `${formatDate(date)} ${formatTime24(date)}`
 const getLocalDateKey = (date) => formatDate(date)
 
 const todayText = formatDate(new Date())
+
+function submissionDbToUi(s) {
+  return {
+    id: s.id,
+    area: s.area,
+    checkedBy: s.checkedBy,
+    submittedAt: formatDateTime(new Date(s.submittedAtIso)),
+    dateKey: s.dateKey,
+    items: s.items.map((it) => ({
+      name: it.name,
+      quantity: it.quantity,
+      category: it.category,
+      result: it.result,
+      remark: it.remark,
+    })),
+  }
+}
 
 const areaTemplates = [
   {
@@ -50,27 +100,22 @@ const areaTemplates = [
   },
 ]
 
-const getBaseAreaEquipment = (areaName) => {
-  const area = areaTemplates.find((item) => item.name === areaName)
-  if (!area) return []
-  return area.equipment.map((item) => ({
-    name: item.name,
-    category: item.category,
-    quantity: item.quantity,
-    area: area.name,
-    assetId: '',
-  }))
-}
-
 function App() {
-  const [selectedArea, setSelectedArea] = useState(areaTemplates[0].name)
+  const [selectedArea, setSelectedArea] = useState(() => {
+    const b = readLocalSnapshot()
+    const s = b.selectedArea
+    return typeof s === 'string' && s.trim() ? s.trim() : areaTemplates[0].name
+  })
   const [page, setPage] = useState('area')
   const [adminTab, setAdminTab] = useState('dashboard')
   const [itemResults, setItemResults] = useState({})
   const [itemRemarks, setItemRemarks] = useState({})
   const [checkedBy, setCheckedBy] = useState('')
   const [submittedAt, setSubmittedAt] = useState('')
-  const [submissions, setSubmissions] = useState([])
+  const [submissions, setSubmissions] = useState(() => {
+    const b = readLocalSnapshot()
+    return Array.isArray(b.submissions) ? b.submissions : []
+  })
   const [equipmentSearch, setEquipmentSearch] = useState('')
   const [showAddEquipmentDialog, setShowAddEquipmentDialog] = useState(false)
   const [showAddCategoryDialog, setShowAddCategoryDialog] = useState(false)
@@ -85,17 +130,44 @@ function App() {
   const [equipmentDialogError, setEquipmentDialogError] = useState('')
   const [newLocationName, setNewLocationName] = useState('')
   const [locationDialogError, setLocationDialogError] = useState('')
-  const [customEquipment, setCustomEquipment] = useState([])
-  const [customLocations, setCustomLocations] = useState([])
-  const [deletedEquipmentIds, setDeletedEquipmentIds] = useState([])
-  const [deletedLocations, setDeletedLocations] = useState([])
-  const [categoryRenames, setCategoryRenames] = useState({})
-  const [baseLocationRenames, setBaseLocationRenames] = useState({})
-  const [customCategories, setCustomCategories] = useState([])
+  const [customEquipment, setCustomEquipment] = useState(() => {
+    const b = readLocalSnapshot()
+    return Array.isArray(b.customEquipment) ? b.customEquipment : []
+  })
+  const [customLocations, setCustomLocations] = useState(() => {
+    const b = readLocalSnapshot()
+    return Array.isArray(b.customLocations) ? b.customLocations : []
+  })
+  const [deletedEquipmentIds, setDeletedEquipmentIds] = useState(() => {
+    const b = readLocalSnapshot()
+    return Array.isArray(b.deletedEquipmentIds) ? b.deletedEquipmentIds : []
+  })
+  const [deletedLocations, setDeletedLocations] = useState(() => {
+    const b = readLocalSnapshot()
+    return Array.isArray(b.deletedLocations) ? b.deletedLocations : []
+  })
+  const [categoryRenames, setCategoryRenames] = useState(() => {
+    const b = readLocalSnapshot()
+    return b.categoryRenames && typeof b.categoryRenames === 'object' ? b.categoryRenames : {}
+  })
+  const [baseLocationRenames, setBaseLocationRenames] = useState(() => {
+    const b = readLocalSnapshot()
+    return b.baseLocationRenames && typeof b.baseLocationRenames === 'object' ? b.baseLocationRenames : {}
+  })
+  const [customCategories, setCustomCategories] = useState(() => {
+    const b = readLocalSnapshot()
+    return Array.isArray(b.customCategories) ? b.customCategories : []
+  })
   const [newCategoryName, setNewCategoryName] = useState('')
   const [categoryDialogError, setCategoryDialogError] = useState('')
-  const [deletedCategories, setDeletedCategories] = useState([])
-  const [equipmentEdits, setEquipmentEdits] = useState({})
+  const [deletedCategories, setDeletedCategories] = useState(() => {
+    const b = readLocalSnapshot()
+    return Array.isArray(b.deletedCategories) ? b.deletedCategories : []
+  })
+  const [equipmentEdits, setEquipmentEdits] = useState(() => {
+    const b = readLocalSnapshot()
+    return b.equipmentEdits && typeof b.equipmentEdits === 'object' ? b.equipmentEdits : {}
+  })
   const [showEditEquipmentDialog, setShowEditEquipmentDialog] = useState(false)
   const [editingEquipmentId, setEditingEquipmentId] = useState('')
   const [editEquipment, setEditEquipment] = useState({
@@ -116,9 +188,35 @@ function App() {
   const [editCategoryError, setEditCategoryError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(null)
 
+  const dbMode = supabaseConfigured
+
+  const [dbLocations, setDbLocations] = useState([])
+  const [dbEquipment, setDbEquipment] = useState([])
+  const [dbExtraCategories, setDbExtraCategories] = useState([])
+
   const [syncReady, setSyncReady] = useState(() => !supabaseConfigured)
   const [syncError, setSyncError] = useState(null)
   const skipSaveRef = useRef(true)
+
+  const reloadFromDatabase = useCallback(async () => {
+    if (!supabase) return { locations: [], equipment: [], submissions: [] }
+    const [locs, eq, cats, subs] = await Promise.all([
+      fetchLocations(supabase),
+      fetchEquipmentFlat(supabase),
+      fetchExtraCategories(supabase),
+      fetchSubmissionsUi(supabase),
+    ])
+    setDbLocations(locs)
+    setDbEquipment(eq)
+    setDbExtraCategories(cats)
+    setSubmissions(subs.map(submissionDbToUi))
+    if (locs.length > 0) {
+      setSelectedArea((prev) =>
+        locs.some((l) => l.name === prev) ? prev : locs[0].name,
+      )
+    }
+    return { locations: locs, equipment: eq, submissions: subs }
+  }, [])
 
   const persistedPayload = useMemo(
     () => ({
@@ -153,41 +251,18 @@ function App() {
     if (!supabaseConfigured || !supabase) return
     let cancelled = false
     ;(async () => {
-      const { data, error } = await supabase
-        .from('app_state')
-        .select('payload')
-        .eq('id', 'main')
-        .maybeSingle()
-      if (cancelled) return
-      if (error) {
-        setSyncError(error.message)
-        setSyncReady(true)
-        return
+      try {
+        await reloadFromDatabase()
+      } catch (e) {
+        if (!cancelled) setSyncError(e.message ?? String(e))
+      } finally {
+        if (!cancelled) setSyncReady(true)
       }
-      const p = data?.payload
-      if (p && typeof p === 'object') {
-        if (Array.isArray(p.submissions)) setSubmissions(p.submissions)
-        if (Array.isArray(p.customEquipment)) setCustomEquipment(p.customEquipment)
-        if (Array.isArray(p.customLocations)) setCustomLocations(p.customLocations)
-        if (Array.isArray(p.deletedEquipmentIds)) setDeletedEquipmentIds(p.deletedEquipmentIds)
-        if (Array.isArray(p.deletedLocations)) setDeletedLocations(p.deletedLocations)
-        if (p.categoryRenames && typeof p.categoryRenames === 'object')
-          setCategoryRenames(p.categoryRenames)
-        if (p.baseLocationRenames && typeof p.baseLocationRenames === 'object')
-          setBaseLocationRenames(p.baseLocationRenames)
-        if (Array.isArray(p.customCategories)) setCustomCategories(p.customCategories)
-        if (Array.isArray(p.deletedCategories)) setDeletedCategories(p.deletedCategories)
-        if (p.equipmentEdits && typeof p.equipmentEdits === 'object')
-          setEquipmentEdits(p.equipmentEdits)
-        if (typeof p.selectedArea === 'string' && p.selectedArea.trim())
-          setSelectedArea(p.selectedArea.trim())
-      }
-      setSyncReady(true)
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadFromDatabase])
 
   useEffect(() => {
     if (!syncReady || !supabaseConfigured) return
@@ -195,28 +270,51 @@ function App() {
   }, [syncReady])
 
   useEffect(() => {
-    if (!supabaseConfigured || !supabase || !syncReady || skipSaveRef.current) return
-    const payload = persistedPayload
+    if (dbMode || typeof window === 'undefined') return
+    try {
+      localStorage.setItem(
+        LS_KEY,
+        JSON.stringify({ ...persistedPayload, savedAt: Date.now() }),
+      )
+    } catch {
+      /* quota / private mode */
+    }
+  }, [dbMode, persistedPayload])
+
+  useEffect(() => {
+    if (!supabaseConfigured || !supabase || !syncReady || skipSaveRef.current || dbMode) return
+    const payloadForRemote = { ...persistedPayload, savedAt: Date.now() }
     const handle = setTimeout(async () => {
       const { error } = await supabase.from('app_state').upsert(
         {
           id: 'main',
-          payload,
+          payload: payloadForRemote,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'id' },
       )
       if (error) setSyncError(error.message)
       else setSyncError(null)
-    }, 500)
+    }, 400)
     return () => clearTimeout(handle)
-  }, [syncReady, persistedPayload])
+  }, [dbMode, syncReady, persistedPayload])
 
   const handleAreaChange = (areaName) => {
     setSelectedArea(areaName)
   }
 
   const buildAreaEquipment = (areaName) => {
+    if (dbMode) {
+      const normalizedArea = areaName.trim().toLowerCase()
+      return dbEquipment
+        .filter((item) => item.area.trim().toLowerCase() === normalizedArea)
+        .map((item, index) => ({
+          id: index + 1,
+          ...item,
+          assetId: item.assetId || '',
+          status: 'Due',
+        }))
+    }
     const normalizedArea = areaName.trim().toLowerCase()
     const baseTemplate = areaTemplates.find(
       (area) =>
@@ -303,14 +401,11 @@ function App() {
   const todayKey = getLocalDateKey(new Date())
   const todaySubmissions = submissions.filter((submission) => submission.dateKey === todayKey)
   const submittedAreasToday = new Set(todaySubmissions.map((submission) => submission.area))
-  const allLocations = [
-    ...areaTemplates.map((area) => baseLocationRenames[area.name] || area.name),
-    ...customLocations,
-  ]
-    .filter((name) => !deletedLocations.includes(name))
-    .sort(
-    (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
-  )
+  const allLocations = dbMode
+    ? dbLocations.map((l) => l.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
+    : [...areaTemplates.map((area) => baseLocationRenames[area.name] || area.name), ...customLocations]
+        .filter((name) => !deletedLocations.includes(name))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }))
   const pendingAreasToday = allLocations.filter((areaName) => !submittedAreasToday.has(areaName))
   const latestItemStatusMap = todaySubmissions.reduce((acc, submission) => {
     submission.items.forEach((item, index) => {
@@ -344,34 +439,46 @@ function App() {
   const latestSubmissionForArea = todaySubmissions.find(
     (submission) => submission.area === selectedArea,
   )
-  const allEquipmentCatalog = [
-    ...areaTemplates.flatMap((area) =>
-    area.equipment.map((item, index) => ({
-      id: `${area.name}-${item.name}-${index}`,
-      name: item.name,
-      category: categoryRenames[item.category] || item.category,
-      quantity: item.quantity,
-      area: baseLocationRenames[area.name] || area.name,
-    })),
-  ),
-    ...customEquipment,
-  ]
-    .map((item) => ({
-      ...item,
-      ...(equipmentEdits[item.id] || {}),
-    }))
-    .filter((item) => !deletedEquipmentIds.includes(item.id))
-    .filter((item) => !deletedLocations.includes(item.area))
+  const allEquipmentCatalog = dbMode
+    ? dbEquipment.map((item) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        quantity: item.quantity,
+        area: item.area,
+        assetId: item.assetId || '',
+        remark: item.remark || '',
+      }))
+    : [
+        ...areaTemplates.flatMap((area) =>
+          area.equipment.map((item, index) => ({
+            id: `${area.name}-${item.name}-${index}`,
+            name: item.name,
+            category: categoryRenames[item.category] || item.category,
+            quantity: item.quantity,
+            area: baseLocationRenames[area.name] || area.name,
+          })),
+        ),
+        ...customEquipment,
+      ]
+          .map((item) => ({
+            ...item,
+            ...(equipmentEdits[item.id] || {}),
+          }))
+          .filter((item) => !deletedEquipmentIds.includes(item.id))
+          .filter((item) => !deletedLocations.includes(item.area))
   const filteredEquipmentCatalog = allEquipmentCatalog.filter((item) =>
     `${item.name} ${item.category} ${item.area}`
       .toLowerCase()
       .includes(equipmentSearch.trim().toLowerCase()),
   )
-  const categoryOptions = Array.from(
-    new Set([...allEquipmentCatalog.map((item) => item.category), ...customCategories]),
-  )
-    .filter((category) => !deletedCategories.includes(category))
-    .sort((a, b) => a.localeCompare(b))
+  const categoryOptions = dbMode
+    ? Array.from(new Set([...dbEquipment.map((item) => item.category), ...dbExtraCategories]))
+        .filter((category) => !deletedCategories.includes(category))
+        .sort((a, b) => a.localeCompare(b))
+    : Array.from(new Set([...allEquipmentCatalog.map((item) => item.category), ...customCategories]))
+        .filter((category) => !deletedCategories.includes(category))
+        .sort((a, b) => a.localeCompare(b))
   const locationRows = allLocations
   const [reportMonth, setReportMonth] = useState('2026-05')
   const [reportZone, setReportZone] = useState('all')
@@ -487,6 +594,41 @@ function App() {
       return
     }
 
+    if (dbMode && supabase) {
+      void (async () => {
+        const locId = locationIdByName(dbLocations, area)
+        if (!locId) {
+          setEquipmentDialogError('Unknown location.')
+          return
+        }
+        try {
+          await insertEquipmentItem(supabase, {
+            id: crypto.randomUUID(),
+            location_id: locId,
+            name,
+            category,
+            quantity: 1,
+            asset_id: assetId,
+            remark: newEquipment.remark.trim(),
+          })
+          await reloadFromDatabase()
+          setNewEquipment({
+            assetId: '',
+            name: '',
+            category: '',
+            area: dbLocations[0]?.name ?? areaTemplates[0].name,
+            remark: '',
+          })
+          setEquipmentDialogError('')
+          setShowAddEquipmentDialog(false)
+          setSyncError(null)
+        } catch (e) {
+          setEquipmentDialogError(e.message ?? String(e))
+        }
+      })()
+      return
+    }
+
     const createdItem = {
       id: crypto.randomUUID(),
       assetId,
@@ -522,6 +664,21 @@ function App() {
       setCategoryDialogError('This category already exists.')
       return
     }
+    if (dbMode && supabase) {
+      void (async () => {
+        try {
+          await insertExtraCategory(supabase, name)
+          await reloadFromDatabase()
+          setShowAddCategoryDialog(false)
+          setNewCategoryName('')
+          setCategoryDialogError('')
+          setSyncError(null)
+        } catch (e) {
+          setCategoryDialogError(e.message ?? String(e))
+        }
+      })()
+      return
+    }
     setCustomCategories((prev) => [...prev, name])
     setShowAddCategoryDialog(false)
     setNewCategoryName('')
@@ -548,6 +705,30 @@ function App() {
     )
     if (duplicate) {
       setEditLocationError('This location already exists.')
+      return
+    }
+
+    if (dbMode && supabase) {
+      void (async () => {
+        const locId = locationIdByName(dbLocations, oldName)
+        if (!locId) {
+          setEditLocationError('Location not found.')
+          return
+        }
+        try {
+          await updateLocationName(supabase, locId, newName)
+          await reloadFromDatabase()
+          if (selectedArea === oldName) setSelectedArea(newName)
+          if (reportZone === oldName) setReportZone(newName)
+          setShowEditLocationDialog(false)
+          setEditingLocationName('')
+          setEditLocationName('')
+          setEditLocationError('')
+          setSyncError(null)
+        } catch (e) {
+          setEditLocationError(e.message ?? String(e))
+        }
+      })()
       return
     }
 
@@ -579,6 +760,18 @@ function App() {
   }
 
   const executeDeleteEquipment = (item) => {
+    if (dbMode && supabase) {
+      void (async () => {
+        try {
+          await deleteEquipmentItem(supabase, item.id)
+          await reloadFromDatabase()
+          setSyncError(null)
+        } catch (e) {
+          setSyncError(e.message ?? String(e))
+        }
+      })()
+      return
+    }
     setDeletedEquipmentIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]))
     setEquipmentEdits((prev) => {
       const next = { ...prev }
@@ -588,6 +781,26 @@ function App() {
   }
 
   const executeDeleteLocation = (locationName) => {
+    if (dbMode && supabase) {
+      void (async () => {
+        const locId = locationIdByName(dbLocations, locationName)
+        if (!locId) return
+        try {
+          await deleteLocationCascade(supabase, locId)
+          const { locations: locsAfter } = await reloadFromDatabase()
+          if (selectedArea === locationName) {
+            const fallback = locsAfter[0]?.name
+            if (fallback) setSelectedArea(fallback)
+            else setPage('area')
+          }
+          if (reportZone === locationName) setReportZone('all')
+          setSyncError(null)
+        } catch (e) {
+          setSyncError(e.message ?? String(e))
+        }
+      })()
+      return
+    }
     setDeletedLocations((prev) =>
       prev.includes(locationName) ? prev : [...prev, locationName],
     )
@@ -627,6 +840,24 @@ function App() {
       setEditCategoryError('This category already exists.')
       return
     }
+    if (dbMode && supabase) {
+      void (async () => {
+        try {
+          await renameEquipmentCategory(supabase, oldName, newName)
+          await deleteExtraCategory(supabase, oldName).catch(() => {})
+          await insertExtraCategory(supabase, newName).catch(() => {})
+          await reloadFromDatabase()
+          setShowEditCategoryDialog(false)
+          setEditingCategoryName('')
+          setEditCategoryName('')
+          setEditCategoryError('')
+          setSyncError(null)
+        } catch (e) {
+          setEditCategoryError(e.message ?? String(e))
+        }
+      })()
+      return
+    }
     setCustomCategories((prev) => prev.map((name) => (name === oldName ? newName : name)))
     setCategoryRenames((prev) => ({ ...prev, [oldName]: newName }))
     setCustomEquipment((prev) =>
@@ -648,6 +879,19 @@ function App() {
   }
 
   const executeDeleteCategory = (categoryName) => {
+    if (dbMode && supabase) {
+      void (async () => {
+        try {
+          await deleteEquipmentByCategory(supabase, categoryName)
+          await deleteExtraCategory(supabase, categoryName).catch(() => {})
+          await reloadFromDatabase()
+          setSyncError(null)
+        } catch (e) {
+          setSyncError(e.message ?? String(e))
+        }
+      })()
+      return
+    }
     setDeletedCategories((prev) =>
       prev.includes(categoryName) ? prev : [...prev, categoryName],
     )
@@ -703,6 +947,32 @@ function App() {
     const area = editEquipment.area.trim()
     if (!assetId || !name || !category || !area) {
       setEditEquipmentError('Please complete all required fields.')
+      return
+    }
+    if (dbMode && supabase) {
+      void (async () => {
+        const locId = locationIdByName(dbLocations, area)
+        if (!locId) {
+          setEditEquipmentError('Unknown location.')
+          return
+        }
+        try {
+          await updateEquipmentItem(supabase, editingEquipmentId, {
+            asset_id: assetId,
+            name,
+            category,
+            remark: editEquipment.remark.trim(),
+            location_id: locId,
+          })
+          await reloadFromDatabase()
+          setShowEditEquipmentDialog(false)
+          setEditingEquipmentId('')
+          setEditEquipmentError('')
+          setSyncError(null)
+        } catch (e) {
+          setEditEquipmentError(e.message ?? String(e))
+        }
+      })()
       return
     }
     setEquipmentEdits((prev) => ({
@@ -932,28 +1202,61 @@ function App() {
                   Boolean(ngRemarkWarning)
                 }
                 onClick={() => {
-                  const now = new Date()
-                  const submittedTime = formatDateTime(now)
-                  const itemSnapshot = equipmentInArea.map((item) => ({
-                    name: item.name,
-                    quantity: item.quantity,
-                    category: item.category,
-                    result: itemResults[`${selectedArea}-${item.id}`],
-                    remark: itemRemarks[`${selectedArea}-${item.id}`] ?? '',
-                  }))
+                  void (async () => {
+                    const now = new Date()
+                    const submittedTime = formatDateTime(now)
+                    const itemSnapshot = equipmentInArea.map((item) => ({
+                      equipment_item_id: item.id,
+                      name: item.name,
+                      quantity: item.quantity,
+                      category: item.category,
+                      result: itemResults[`${selectedArea}-${item.id}`],
+                      remark: itemRemarks[`${selectedArea}-${item.id}`] ?? '',
+                    }))
 
-                  const newSubmission = {
-                    id: crypto.randomUUID(),
-                    area: selectedArea,
-                    checkedBy: checkedBy.trim(),
-                    submittedAt: submittedTime,
-                    dateKey: getLocalDateKey(now),
-                    items: itemSnapshot,
-                  }
+                    if (dbMode && supabase) {
+                      const locId = locationIdByName(dbLocations, selectedArea)
+                      if (!locId) {
+                        setSyncError('Unknown location.')
+                        return
+                      }
+                      try {
+                        await insertSubmission(supabase, {
+                          locationId: locId,
+                          checkedBy: checkedBy.trim(),
+                          submittedAtIso: now.toISOString(),
+                          localDateKey: getLocalDateKey(now),
+                          items: itemSnapshot,
+                        })
+                        await reloadFromDatabase()
+                        setSubmittedAt(submittedTime)
+                        setPage('submitted')
+                        setSyncError(null)
+                      } catch (e) {
+                        setSyncError(e.message ?? String(e))
+                      }
+                      return
+                    }
 
-                  setSubmissions((prev) => [newSubmission, ...prev])
-                  setSubmittedAt(submittedTime)
-                  setPage('submitted')
+                    const newSubmission = {
+                      id: crypto.randomUUID(),
+                      area: selectedArea,
+                      checkedBy: checkedBy.trim(),
+                      submittedAt: submittedTime,
+                      dateKey: getLocalDateKey(now),
+                      items: itemSnapshot.map((row) => ({
+                        name: row.name,
+                        quantity: row.quantity,
+                        category: row.category,
+                        result: row.result,
+                        remark: row.remark,
+                      })),
+                    }
+
+                    setSubmissions((prev) => [newSubmission, ...prev])
+                    setSubmittedAt(submittedTime)
+                    setPage('submitted')
+                  })()
                 }}
               >
                 {latestSubmissionForArea ? 'Update Checklist' : 'Submit'}
@@ -1537,6 +1840,25 @@ function App() {
                         )
                         if (isDuplicate) {
                           setLocationDialogError('This location already exists.')
+                          return
+                        }
+                        if (dbMode && supabase) {
+                          void (async () => {
+                            try {
+                              const maxOrder = dbLocations.reduce(
+                                (m, l) => Math.max(m, l.sort_order ?? 0),
+                                0,
+                              )
+                              await insertLocation(supabase, name, maxOrder + 1)
+                              await reloadFromDatabase()
+                              setNewLocationName('')
+                              setLocationDialogError('')
+                              setShowAddLocationDialog(false)
+                              setSyncError(null)
+                            } catch (e) {
+                              setLocationDialogError(e.message ?? String(e))
+                            }
+                          })()
                           return
                         }
                         setCustomLocations((prev) => [...prev, name])
