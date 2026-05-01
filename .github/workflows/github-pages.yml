@@ -23,9 +23,6 @@ jobs:
     defaults:
       run:
         working-directory: hospital-equipment-check
-    env:
-      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v5
 
@@ -37,10 +34,6 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-
-      - name: Write runtime Supabase config
-        run: |
-          node -e "const fs=require('fs');fs.mkdirSync('dist',{recursive:true});fs.writeFileSync('dist/supabase-runtime-config.json',JSON.stringify({url:process.env.VITE_SUPABASE_URL||'',anonKey:process.env.VITE_SUPABASE_ANON_KEY||''}));"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
